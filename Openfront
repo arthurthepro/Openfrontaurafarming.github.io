@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Front Prototype</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #222;
+            color: white;
+            font-family: sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        canvas {
+            background-color: #354a21; /* Grass/Field color */
+            border: 4px solid #444;
+            cursor: crosshair;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui">
+        <h1>OPEN FRONT: LITE</h1>
+        <p>WASD to Move | Click to Shoot</p>
+        <p>Score: <span id="score">0</span></p>
+        <p>Health: <span id="health">100</span>%</p>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const healthEl = document.getElementById('health');
+
+    canvas.width = 800;
+    canvas.height = 600;
+
+    let score = 0;
+    let gameActive = true;
+
+    // Input Handling
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    let mouse = { x: 0, y: 0 };
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+    });
+
+    // Game Objects
+    class Player {
+        constructor() {
+            this.x = canvas.width / 2;
+            this.y = canvas.height / 2;
+            this.radius = 15;
+            this.color = '#2c3e50';
+            this.speed = 4;
+            this.hp = 100;
+        }
+
+        draw() {
+            // Draw Body
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.closePath();
+
+            // Draw Aim Direction (Gun)
+            const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#111';
+            ctx.fillRect(10, -3, 15, 6);
+            ctx.restore();
+        }
+
+        update() {
+            if (keys['KeyW'] && this.y > 0) this.y -= this.speed;
+            if (keys['KeyS'] && this.y < canvas.height) this.y += this.speed;
+            if (keys['KeyA'] && this.x > 0) this.x -= this.speed;
+            if (keys['KeyD'] && this.x < canvas.width) this.x += this.speed;
+        }
+    }
+
+    class Projectile {
+        constructor(x, y, targetX, targetY) {
+            this.x = x;
+            this.y = y;
+            this.radius = 3;
+            this.color = 'yellow';
+            const angle = Math.atan2(targetY - y, targetX - x);
+            this.velocity = {
+                x: Math.cos(angle) * 10,
+                y: Math.sin(angle) * 10
+            };
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+
+        update() {
+            this.x += this.velocity.x;
+            this.y += this.velocity.y;
+        }
+    }
+
+    class Enemy {
+        constructor() {
+            this.radius = 15;
+            // Spawn randomly off-screen
+            if (Math.random() < 0.5) {
+                this.x = Math.random() < 0.5 ? 0 - this.radius : canvas.width + this.radius;
+                this.y = Math.random() * canvas.height;
+            } else {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() < 0.5 ? 0 - this.radius : canvas.height + this.radius;
+            }
+            this.color = '#c0392b';
+            this.speed = 1.5 + (score / 10); // Get faster as score increases
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+
+        update(player) {
+            const angle = Math.atan2(player.y - this.y, player.x - this.x);
+            this.x += Math.cos(angle) * this.speed;
+            this.y += Math.sin(angle) * this.speed;
+        }
+    }
+
+    const player = new Player();
+    const projectiles = [];
+    const enemies = [];
+
+    // Shooting logic
+    canvas.addEventListener('click', () => {
+        if (!gameActive) return;
+        projectiles.push(new Projectile(player.x, player.y, mouse.x, mouse.y));
+    });
+
+    // Enemy Spawner
+    setInterval(() => {
+        if (gameActive) enemies.push(new Enemy());
+    }, 1500);
+
+    function animate() {
+        if (!gameActive) return;
+        requestAnimationFrame(animate);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        player.update();
+        player.draw();
+
+        projectiles.forEach((bullet, bIndex) => {
+            bullet.update();
+            bullet.draw();
+
+            // Remove bullets off screen
+            if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                projectiles.splice(bIndex, 1);
+            }
+        });
+
+        enemies.forEach((enemy, eIndex) => {
+            enemy.update(player);
+            enemy.draw();
+
+            // Collision: Bullet hits Enemy
+            projectiles.forEach((bullet, bIndex) => {
+                const dist = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
+                if (dist - enemy.radius - bullet.radius < 1) {
+                    enemies.splice(eIndex, 1);
+                    projectiles.splice(bIndex, 1);
+                    score += 1;
+                    scoreEl.innerText = score;
+                }
+            });
+
+            // Collision: Enemy hits Player
+            const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+            if (dist - enemy.radius - player.radius < 1) {
+                player.hp -= 0.5; // Damage over time on contact
+                healthEl.innerText = Math.floor(player.hp);
+                
+                if (player.hp <= 0) {
+                    gameActive = false;
+                    alert("FRONT BREACHED! Final Score: " + score);
+                    location.reload();
+                }
+            }
+        });
+    }
+
+    animate();
+</script>
+</body>
+</html>
